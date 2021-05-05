@@ -1,6 +1,6 @@
 {
   "name": "@jspolicy/webpack-plugin",
-  "version": "0.0.2",
+  "version": "0.0.5",
   "description": "A webpack plugin for generating JsPolicy and JsPolicyBundle manifests for jsPolicy.com",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",

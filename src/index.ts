@@ -1,6 +1,7 @@
 import webpack from 'webpack';
 import path from 'path';
 import yaml from 'yaml';
+import zlib from 'zlib';
 import { promises as fs, existsSync } from 'fs';
 import { PolicyV1beta1JsPolicy, PolicyV1beta1JsPolicyBundle } from '@jspolicy/types'
 
@@ -34,9 +35,10 @@ export class PolicyBundlePlugin {
 
         const policyName = bundleFile.replace(this.options.policyNameRegex, "$1")
         const outFilePolicy = this.options.outDir + "/" + policyName + ".yaml"
+        const outFilePolicyBundle = this.options.outDir + "/" + policyName + ".bundle.yaml"
 
         await fs.mkdir(path.dirname(outFilePolicy), {recursive: true})
-
+        
         const policyYaml = await fs.readFile(policySourceFile, 'utf8')
         const policy: PolicyV1beta1JsPolicy = yaml.parse(policyYaml)
         const policyBundle: PolicyV1beta1JsPolicyBundle = {
@@ -44,31 +46,34 @@ export class PolicyBundlePlugin {
             kind: "JsPolicyBundle",
             metadata: policy.metadata,
             spec: {
-                bundle: Buffer.from(await fs.readFile(bundleFile)).toString("base64")
+                bundle: zlib.gzipSync(await fs.readFile(bundleFile)).toString("base64")
             }
         }
 
         const policyBundleYaml = yaml.stringify(policyBundle)
-
-        await fs.copyFile(policySourceFile, outFilePolicy)
     
-        return fs.appendFile(outFilePolicy, "\n---\n" + policyBundleYaml)
+        return Promise.all([
+            fs.copyFile(policySourceFile, outFilePolicy),
+            fs.writeFile(outFilePolicyBundle, policyBundleYaml)
+        ])
     }
 
     apply(compiler: webpack.Compiler) {
         compiler.hooks.afterEmit.tap('PolicyBundlePlugin',
             async (compilation: webpack.Compilation) => {
-                const delPromises: Promise<any>[] = [];
-                (await fs.readdir(this.options.outDir)).forEach(async (file: string) => {
-                    file = this.options.outDir + "/" + file
-                    if ((await fs.stat(file)).isDirectory()) {
-                        delPromises.push(fs.rmdir(file, {recursive: true}))
-                    } else {
-                        delPromises.push(fs.unlink(file))
-                    }
-                })
-
-                await Promise.all(delPromises)
+                if (existsSync(this.options.outDir)) {
+                    const delPromises: Promise<any>[] = [];
+                    (await fs.readdir(this.options.outDir)).forEach(async (file: string) => {
+                        file = this.options.outDir + "/" + file
+                        if ((await fs.stat(file)).isDirectory()) {
+                            delPromises.push(fs.rmdir(file, {recursive: true}))
+                        } else {
+                            delPromises.push(fs.unlink(file))
+                        }
+                    })
+    
+                    await Promise.all(delPromises)
+                }
 
                 const promises: Promise<any>[] = []
                 
